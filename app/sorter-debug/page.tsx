@@ -1,5 +1,5 @@
-import ThreadsImageSorterDebug from "@/components/ThreadsImageSorterDebug";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <ThreadsImageSorterDebug />;
+  redirect("/intake");
 }

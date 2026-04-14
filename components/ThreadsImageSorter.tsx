@@ -231,8 +231,14 @@ export default function ThreadsImageSorter() {
 
     // 拉桿：-4 ~ 4
     // 負值 = 左邊較佳；正值 = 右邊較佳
-    left.totalMargin += -value;
-    right.totalMargin += value;
+    if (value < 0) {
+      // A 比 B 好
+      left.totalMargin += Math.abs(value);
+    } else if (value > 0) {
+      // B 比 A 好
+      right.totalMargin += value;
+    }
+    // value === 0 → 不動
 
     // 瑞士制積分
     if (value < 0) {
@@ -305,7 +311,29 @@ export default function ThreadsImageSorter() {
   }
 
   function handleExportCsv() {
+    const participantRaw =
+      typeof window !== "undefined"
+        ? localStorage.getItem("participant_profile")
+        : null;
+
+    const participant = participantRaw
+      ? JSON.parse(participantRaw)
+      : {
+        participantId: "",
+        age: "",
+        gender: "",
+        threadsFrequency: "",
+        dailyUsageMinutes: "",
+        postingFrequency: "",
+      };
+
     const header = [
+      "participantId",
+      "age",
+      "gender",
+      "threadsFrequency",
+      "dailyUsageMinutes",
+      "postingFrequency",
       "rank",
       "id",
       "imageUrl",
@@ -313,18 +341,19 @@ export default function ThreadsImageSorter() {
       "totalMargin",
       "matches",
       "averageMargin",
-      "phase2Candidate",
     ];
-
-    const phase2Ids = new Set(
-      ranking.slice(0, typeof PHASES[1]?.poolSize === "number" ? PHASES[1].poolSize : ranking.length).map((item) => item.id)
-    );
 
     const rows = ranking.map((item, index) => {
       const averageMargin =
         item.matches > 0 ? item.totalMargin / item.matches : 0;
 
       return [
+        participant.participantId,
+        participant.age,
+        participant.gender,
+        participant.threadsFrequency,
+        participant.dailyUsageMinutes,
+        participant.postingFrequency,
         index + 1,
         item.id,
         item.imageUrl,
@@ -332,7 +361,6 @@ export default function ThreadsImageSorter() {
         item.totalMargin,
         item.matches,
         averageMargin.toFixed(4),
-        phase2Ids.has(item.id) ? "yes" : "no",
       ];
     });
 
@@ -347,13 +375,16 @@ export default function ThreadsImageSorter() {
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
+
     const timestamp = new Date()
       .toISOString()
       .slice(0, 19)
       .replace(/[:T]/g, "-");
 
     a.href = url;
-    a.download = `threads-two-stage-ranking-${timestamp}.csv`;
+    a.download = `threads-ranking-${participant.participantId || "unknown"
+      }-${timestamp}.csv`;
+
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
