@@ -139,6 +139,7 @@ export default function IntakePage() {
               className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
             >
               <option value="">請選擇</option>
+              <option value="每天">每天</option>
               <option value="幾乎每天">幾乎每天</option>
               <option value="每週數次">每週數次</option>
               <option value="每週一次左右">每週一次左右</option>
@@ -154,11 +155,11 @@ export default function IntakePage() {
               className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
             >
               <option value="">請選擇</option>
-              <option value="10分鐘以下">10分鐘以下</option>
-              <option value="10-30分鐘">10-30分鐘</option>
+              <option value="10-30分鐘以下">30分鐘以下</option>
               <option value="31-60分鐘">31-60分鐘</option>
               <option value="1-2小時">1-2小時</option>
-              <option value="2小時以上">2小時以上</option>
+              <option value="2-5小時">2-5小時</option>
+              <option value="5小時以上">5小時以上</option>
             </select>
           </Field>
 

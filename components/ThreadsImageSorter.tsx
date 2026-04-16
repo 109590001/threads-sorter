@@ -7,56 +7,19 @@ type Post = {
   imageUrl: string;
 };
 
-type PostState = Post & {
-  swissPoints: number;
-  totalMargin: number;
-  matches: number;
-  opponents: string[];
-  seed: number;
+type CompareTask = {
+  left: Post;
+  right: Post;
 };
 
-type Pair = {
-  left: PostState;
-  right: PostState;
+type HistoryEntry = {
+  leftQueue: Post[];
+  rightQueue: Post[];
+  merged: Post[];
+  completed: Post[][];
+  pending: Post[][];
+  result: "left" | "right" | "tie";
 };
-
-type PhaseConfig = {
-  key: "phase1" | "phase2";
-  label: string;
-  rounds: number;
-  poolSize: number | "all";
-};
-
-type Snapshot = {
-  allItems: PostState[];
-  activeIds: string[];
-  phaseIndex: number;
-  round: number;
-  pairIndex: number;
-  slider: number;
-};
-
-const TOTAL_POSTS = 60;
-
-const PHASES: PhaseConfig[] = [
-  {
-    key: "phase1",
-    label: "第一階段｜全體粗排",
-    rounds: 2,
-    poolSize: "all",
-  },
-  {
-    key: "phase2",
-    label: "第二階段｜前 16 名精排",
-    rounds: 2,
-    poolSize: 16,
-  },
-];
-
-const basePosts: Post[] = Array.from({ length: TOTAL_POSTS }, (_, i) => ({
-  id: String(i + 1),
-  imageUrl: `/images/${String(i + 1).padStart(2, "0")}.png`,
-}));
 
 function shuffle<T>(array: T[]) {
   const copy = [...array];
@@ -65,47 +28,6 @@ function shuffle<T>(array: T[]) {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
-}
-
-function cloneItems(items: PostState[]) {
-  return items.map((item) => ({
-    ...item,
-    opponents: [...item.opponents],
-  }));
-}
-
-function compareForRanking(a: PostState, b: PostState) {
-  if (b.swissPoints !== a.swissPoints) return b.swissPoints - a.swissPoints;
-
-  const aAvg = a.matches > 0 ? a.totalMargin / a.matches : 0;
-  const bAvg = b.matches > 0 ? b.totalMargin / b.matches : 0;
-  if (bAvg !== aAvg) return bAvg - aAvg;
-
-  if (b.totalMargin !== a.totalMargin) return b.totalMargin - a.totalMargin;
-
-  return a.seed - b.seed;
-}
-
-function buildSwissPairs(items: PostState[]): Pair[] {
-  const sorted = [...items].sort(compareForRanking);
-  const working = [...sorted];
-  const pairs: Pair[] = [];
-
-  while (working.length >= 2) {
-    const left = working.shift()!;
-    let opponentIndex = working.findIndex(
-      (candidate) => !left.opponents.includes(candidate.id)
-    );
-
-    if (opponentIndex === -1) {
-      opponentIndex = 0;
-    }
-
-    const right = working.splice(opponentIndex, 1)[0];
-    pairs.push({ left, right });
-  }
-
-  return pairs;
 }
 
 function escapeCsvValue(value: string | number) {
@@ -117,200 +39,236 @@ function escapeCsvValue(value: string | number) {
 }
 
 export default function ThreadsImageSorter() {
-  const [allItems, setAllItems] = useState<PostState[]>([]);
-  const [activeIds, setActiveIds] = useState<string[]>([]);
-  const [phaseIndex, setPhaseIndex] = useState(0);
-  const [round, setRound] = useState(1);
-  const [pairIndex, setPairIndex] = useState(0);
-  const [slider, setSlider] = useState(0);
-  const [history, setHistory] = useState<Snapshot[]>([]);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [pending, setPending] = useState<Post[][]>([]);
+  const [completed, setCompleted] = useState<Post[][]>([]);
+  const [leftQueue, setLeftQueue] = useState<Post[]>([]);
+  const [rightQueue, setRightQueue] = useState<Post[]>([]);
+  const [merged, setMerged] = useState<Post[]>([]);
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [ready, setReady] = useState(false);
 
-  const currentPhase = PHASES[phaseIndex] ?? null;
-
-  useEffect(() => {
-    const seeded = shuffle(basePosts).map((post, index) => ({
-      ...post,
-      swissPoints: 0,
-      totalMargin: 0,
-      matches: 0,
-      opponents: [],
-      seed: index,
-    }));
-
-    setAllItems(seeded);
-    setActiveIds(seeded.map((item) => item.id));
-    setPhaseIndex(0);
-    setRound(1);
-    setPairIndex(0);
-    setSlider(0);
+  function initializeWithPosts(sourcePosts: Post[]) {
+    const shuffled = shuffle(sourcePosts);
+    setPosts(sourcePosts);
+    setPending(shuffled.map((p) => [p]));
+    setCompleted([]);
+    setLeftQueue([]);
+    setRightQueue([]);
+    setMerged([]);
     setHistory([]);
     setReady(true);
+  }
+
+  async function loadImagesAndInitialize() {
+    try {
+      const res = await fetch("/api/images", { cache: "no-store" });
+      if (!res.ok) {
+        throw new Error("讀取圖片清單失敗");
+      }
+
+      const ids: string[] = await res.json();
+
+      const formatted = ids.map((id) => ({
+        id,
+        imageUrl: `/images/${id}.png`,
+      }));
+
+      initializeWithPosts(formatted);
+    } catch (error) {
+      console.error(error);
+      setPosts([]);
+      setPending([]);
+      setCompleted([]);
+      setLeftQueue([]);
+      setRightQueue([]);
+      setMerged([]);
+      setHistory([]);
+      setReady(true);
+    }
+  }
+
+  useEffect(() => {
+    loadImagesAndInitialize();
   }, []);
 
-  const ranking = useMemo(() => {
-    return [...allItems].sort(compareForRanking);
-  }, [allItems]);
+  useEffect(() => {
+    if (!ready) return;
 
-  const activeItems = useMemo(() => {
-    const idSet = new Set(activeIds);
-    return ranking.filter((item) => idSet.has(item.id));
-  }, [ranking, activeIds]);
+    if (
+      leftQueue.length === 0 &&
+      rightQueue.length === 0 &&
+      merged.length === 0
+    ) {
+      if (pending.length >= 2) {
+        const [a, b, ...rest] = pending;
+        setLeftQueue(a);
+        setRightQueue(b);
+        setPending(rest);
+        return;
+      }
 
-  const currentPairs = useMemo(() => {
-    if (!ready || activeItems.length === 0) return [];
-    return buildSwissPairs(activeItems);
-  }, [activeItems, ready]);
+      if (pending.length === 1 && completed.length === 0) {
+        return;
+      }
 
-  const currentPair = currentPairs[pairIndex] ?? null;
-  const finished = ready && phaseIndex >= PHASES.length;
+      if (pending.length === 0 && completed.length === 1) {
+        return;
+      }
 
-  function resetOpponentsFor(ids: string[]) {
-    setAllItems((prev) =>
-      prev.map((item) =>
-        ids.includes(item.id) ? { ...item, opponents: [] } : item
-      )
-    );
+      if (pending.length === 0 && completed.length > 1) {
+        setPending(completed);
+        setCompleted([]);
+        return;
+      }
+
+      if (pending.length === 1 && completed.length > 0) {
+        setCompleted((prev) => [...prev, pending[0]]);
+        setPending([]);
+      }
+    }
+  }, [ready, pending, completed, leftQueue, rightQueue, merged]);
+
+  const finishedRanking = useMemo(() => {
+    if (
+      pending.length === 1 &&
+      completed.length === 0 &&
+      leftQueue.length === 0 &&
+      rightQueue.length === 0 &&
+      merged.length === 0
+    ) {
+      return pending[0];
+    }
+
+    if (
+      pending.length === 0 &&
+      completed.length === 1 &&
+      leftQueue.length === 0 &&
+      rightQueue.length === 0 &&
+      merged.length === 0
+    ) {
+      return completed[0];
+    }
+
+    return null;
+  }, [pending, completed, leftQueue, rightQueue, merged]);
+
+  const currentTask: CompareTask | null =
+    leftQueue.length > 0 && rightQueue.length > 0
+      ? {
+          left: leftQueue[0],
+          right: rightQueue[0],
+        }
+      : null;
+
+  const totalGroups =
+    pending.length +
+    completed.length +
+    (leftQueue.length || rightQueue.length || merged.length ? 1 : 0);
+
+  function saveHistory(result: "left" | "right" | "tie") {
+    setHistory((prev) => [
+      ...prev,
+      {
+        leftQueue: [...leftQueue],
+        rightQueue: [...rightQueue],
+        merged: [...merged],
+        completed: completed.map((group) => [...group]),
+        pending: pending.map((group) => [...group]),
+        result,
+      },
+    ]);
   }
 
-  function moveToNextStage(nextRankingSource: PostState[]) {
-    const nextPhaseIndex = phaseIndex + 1;
-
-    if (nextPhaseIndex >= PHASES.length) {
-      setPhaseIndex(nextPhaseIndex);
-      return;
-    }
-
-    const nextPhase = PHASES[nextPhaseIndex];
-    const sorted = [...nextRankingSource].sort(compareForRanking);
-    const nextActive =
-      nextPhase.poolSize === "all"
-        ? sorted
-        : sorted.slice(0, nextPhase.poolSize);
-
-    const nextIds = nextActive.map((item) => item.id);
-
-    setPhaseIndex(nextPhaseIndex);
-    setActiveIds(nextIds);
-    setRound(1);
-    setPairIndex(0);
-    setSlider(0);
-
-    setAllItems((prev) =>
-      prev.map((item) =>
-        nextIds.includes(item.id) ? { ...item, opponents: [] } : item
-      )
-    );
+  function finalizeCurrentMerge(
+    newLeftQueue: Post[],
+    newRightQueue: Post[],
+    newMerged: Post[]
+  ) {
+    const finalMerged = [...newMerged, ...newLeftQueue, ...newRightQueue];
+    setLeftQueue([]);
+    setRightQueue([]);
+    setMerged([]);
+    setCompleted((prev) => [...prev, finalMerged]);
   }
 
-  function applyVote(value: number) {
-    if (!currentPair || !currentPhase) return;
+  function chooseLeft() {
+    if (!currentTask) return;
+    saveHistory("left");
 
-    const snapshot: Snapshot = {
-      allItems: cloneItems(allItems),
-      activeIds: [...activeIds],
-      phaseIndex,
-      round,
-      pairIndex,
-      slider,
-    };
+    const nextMerged = [...merged, leftQueue[0]];
+    const nextLeftQueue = leftQueue.slice(1);
+    const nextRightQueue = [...rightQueue];
 
-    setHistory((prev) => [...prev, snapshot]);
-
-    const nextAllItems = cloneItems(allItems);
-    const left = nextAllItems.find((item) => item.id === currentPair.left.id);
-    const right = nextAllItems.find((item) => item.id === currentPair.right.id);
-
-    if (!left || !right) return;
-
-    left.matches += 1;
-    right.matches += 1;
-
-    left.opponents.push(right.id);
-    right.opponents.push(left.id);
-
-    // 拉桿：-4 ~ 4
-    // 負值 = 左邊較佳；正值 = 右邊較佳
-    if (value < 0) {
-      // A 比 B 好
-      left.totalMargin += Math.abs(value);
-    } else if (value > 0) {
-      // B 比 A 好
-      right.totalMargin += value;
-    }
-    // value === 0 → 不動
-
-    // 瑞士制積分
-    if (value < 0) {
-      left.swissPoints += 1;
-    } else if (value > 0) {
-      right.swissPoints += 1;
-    } else {
-      left.swissPoints += 0.5;
-      right.swissPoints += 0.5;
-    }
-
-    const nextRankingSource = [...nextAllItems].sort(compareForRanking);
-    setAllItems(nextAllItems);
-    setSlider(0);
-
-    const isLastPairInRound = pairIndex + 1 >= currentPairs.length;
-
-    if (!isLastPairInRound) {
-      setPairIndex((prev) => prev + 1);
+    if (nextLeftQueue.length === 0 || nextRightQueue.length === 0) {
+      finalizeCurrentMerge(nextLeftQueue, nextRightQueue, nextMerged);
       return;
     }
 
-    const isLastRoundInPhase = round >= currentPhase.rounds;
+    setMerged(nextMerged);
+    setLeftQueue(nextLeftQueue);
+    setRightQueue(nextRightQueue);
+  }
 
-    if (!isLastRoundInPhase) {
-      setRound((prev) => prev + 1);
-      setPairIndex(0);
-      setAllItems((prev) =>
-        prev.map((item) =>
-          activeIds.includes(item.id) ? { ...item, opponents: [] } : item
-        )
-      );
+  function chooseRight() {
+    if (!currentTask) return;
+    saveHistory("right");
+
+    const nextMerged = [...merged, rightQueue[0]];
+    const nextLeftQueue = [...leftQueue];
+    const nextRightQueue = rightQueue.slice(1);
+
+    if (nextLeftQueue.length === 0 || nextRightQueue.length === 0) {
+      finalizeCurrentMerge(nextLeftQueue, nextRightQueue, nextMerged);
       return;
     }
 
-    moveToNextStage(nextRankingSource);
+    setMerged(nextMerged);
+    setLeftQueue(nextLeftQueue);
+    setRightQueue(nextRightQueue);
+  }
+
+  function chooseTie() {
+    if (!currentTask) return;
+    saveHistory("tie");
+
+    const nextMerged = [...merged, leftQueue[0], rightQueue[0]];
+    const nextLeftQueue = leftQueue.slice(1);
+    const nextRightQueue = rightQueue.slice(1);
+
+    if (nextLeftQueue.length === 0 || nextRightQueue.length === 0) {
+      finalizeCurrentMerge(nextLeftQueue, nextRightQueue, nextMerged);
+      return;
+    }
+
+    setMerged(nextMerged);
+    setLeftQueue(nextLeftQueue);
+    setRightQueue(nextRightQueue);
   }
 
   function handlePrev() {
     const last = history[history.length - 1];
     if (!last) return;
 
-    setAllItems(last.allItems);
-    setActiveIds(last.activeIds);
-    setPhaseIndex(last.phaseIndex);
-    setRound(last.round);
-    setPairIndex(last.pairIndex);
-    setSlider(last.slider);
+    setLeftQueue(last.leftQueue);
+    setRightQueue(last.rightQueue);
+    setMerged(last.merged);
+    setCompleted(last.completed);
+    setPending(last.pending);
     setHistory((prev) => prev.slice(0, -1));
   }
 
   function handleRestart() {
-    const seeded = shuffle(basePosts).map((post, index) => ({
-      ...post,
-      swissPoints: 0,
-      totalMargin: 0,
-      matches: 0,
-      opponents: [],
-      seed: index,
-    }));
-
-    setAllItems(seeded);
-    setActiveIds(seeded.map((item) => item.id));
-    setPhaseIndex(0);
-    setRound(1);
-    setPairIndex(0);
-    setSlider(0);
-    setHistory([]);
-    setReady(true);
+    if (posts.length > 0) {
+      initializeWithPosts(posts);
+    } else {
+      loadImagesAndInitialize();
+    }
   }
 
   function handleExportCsv() {
+    if (!finishedRanking) return;
+
     const participantRaw =
       typeof window !== "undefined"
         ? localStorage.getItem("participant_profile")
@@ -319,13 +277,13 @@ export default function ThreadsImageSorter() {
     const participant = participantRaw
       ? JSON.parse(participantRaw)
       : {
-        participantId: "",
-        age: "",
-        gender: "",
-        threadsFrequency: "",
-        dailyUsageMinutes: "",
-        postingFrequency: "",
-      };
+          participantId: "",
+          age: "",
+          gender: "",
+          threadsFrequency: "",
+          dailyUsageMinutes: "",
+          postingFrequency: "",
+        };
 
     const header = [
       "participantId",
@@ -337,32 +295,19 @@ export default function ThreadsImageSorter() {
       "rank",
       "id",
       "imageUrl",
-      "swissPoints",
-      "totalMargin",
-      "matches",
-      "averageMargin",
     ];
 
-    const rows = ranking.map((item, index) => {
-      const averageMargin =
-        item.matches > 0 ? item.totalMargin / item.matches : 0;
-
-      return [
-        participant.participantId,
-        participant.age,
-        participant.gender,
-        participant.threadsFrequency,
-        participant.dailyUsageMinutes,
-        participant.postingFrequency,
-        index + 1,
-        item.id,
-        item.imageUrl,
-        item.swissPoints,
-        item.totalMargin,
-        item.matches,
-        averageMargin.toFixed(4),
-      ];
-    });
+    const rows = finishedRanking.map((item, index) => [
+      participant.participantId,
+      participant.age,
+      participant.gender,
+      participant.threadsFrequency,
+      participant.dailyUsageMinutes,
+      participant.postingFrequency,
+      index + 1,
+      item.id,
+      item.imageUrl,
+    ]);
 
     const csv = [
       header.map(escapeCsvValue).join(","),
@@ -375,30 +320,21 @@ export default function ThreadsImageSorter() {
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-
     const timestamp = new Date()
       .toISOString()
       .slice(0, 19)
       .replace(/[:T]/g, "-");
 
     a.href = url;
-    a.download = `threads-ranking-${participant.participantId || "unknown"
-      }-${timestamp}.csv`;
+    a.download = `threads-complete-ranking-${
+      participant.participantId || "unknown"
+    }-${timestamp}.csv`;
 
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
-
-  const totalComparisonsEstimate = PHASES.reduce((sum, phase) => {
-    const pool =
-      phase.poolSize === "all" ? TOTAL_POSTS : Number(phase.poolSize);
-    return sum + Math.floor(pool / 2) * phase.rounds;
-  }, 0);
-
-  const completedComparisons =
-    history.length;
 
   if (!ready) {
     return (
@@ -408,18 +344,35 @@ export default function ThreadsImageSorter() {
     );
   }
 
-  if (finished) {
+  if (posts.length === 0) {
     return (
-      <main className="min-h-screen bg-neutral-100 px-4 py-8 md:px-6">
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 text-center">
+        <div className="text-xl font-semibold">找不到圖片</div>
+        <div className="text-sm text-neutral-500">
+          請確認 /public/images 內有 .png 檔案，且 /api/images 可正常讀取。
+        </div>
+        <button
+          onClick={handleRestart}
+          className="rounded-xl bg-black px-4 py-2.5 text-white"
+        >
+          重新嘗試
+        </button>
+      </div>
+    );
+  }
+
+  if (finishedRanking) {
+    return (
+      <main className="min-h-screen bg-neutral-100 p-6">
         <div className="mx-auto max-w-7xl">
           <div className="mb-6 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
             <div>
               <h1 className="text-3xl font-bold text-neutral-900">排序結果</h1>
               <p className="mt-2 text-sm text-neutral-600">
-                已完成兩階段排序：先粗排，再針對前 16 名精排。
+                已完成完整排序。這份結果是完整名次，不是單純配對加分。
               </p>
               <p className="mt-1 text-sm text-neutral-500">
-                總比較次數：約 {totalComparisonsEstimate} 題，實際完成 {completedComparisons} 題
+                總比較次數：{history.length}
               </p>
             </div>
 
@@ -440,67 +393,38 @@ export default function ThreadsImageSorter() {
           </div>
 
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-5">
-            {ranking.map((item, index) => {
-              const avg = item.matches > 0 ? item.totalMargin / item.matches : 0;
-              const isTop16 = index < 16;
-
-              return (
-                <div
-                  key={item.id}
-                  className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm"
-                >
-                  <div className="flex items-center justify-between border-b border-neutral-100 px-3 py-2">
-                    <div className="font-bold text-neutral-900">#{index + 1}</div>
-                    <div className="text-xs text-neutral-500">ID {item.id}</div>
-                  </div>
-
-                  <div className="flex h-[260px] items-center justify-center bg-neutral-50 p-3">
-                    <img
-                      src={item.imageUrl}
-                      alt={`Post ${item.id}`}
-                      className="max-h-full max-w-full object-contain"
-                    />
-                  </div>
-
-                  <div className="space-y-1 px-3 py-3 text-sm text-neutral-700">
-                    <div>積分：{item.swissPoints}</div>
-                    <div>總分差：{item.totalMargin}</div>
-                    <div>平均分差：{avg.toFixed(2)}</div>
-                    <div>比較次數：{item.matches}</div>
-                    <div className={isTop16 ? "font-medium text-emerald-700" : "text-neutral-500"}>
-                      {isTop16 ? "進入第二階段" : "僅第一階段"}
-                    </div>
-                  </div>
+            {finishedRanking.map((post, index) => (
+              <div
+                key={post.id}
+                className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm"
+              >
+                <div className="flex items-center justify-between border-b border-neutral-100 px-3 py-2">
+                  <div className="font-bold text-neutral-900">#{index + 1}</div>
+                  <div className="text-xs text-neutral-500">ID {post.id}</div>
                 </div>
-              );
-            })}
+
+                <div className="flex h-[240px] items-center justify-center bg-neutral-50 p-3">
+                  <img
+                    src={post.imageUrl}
+                    alt={`Post ${post.id}`}
+                    className="max-h-full max-w-full object-contain"
+                  />
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </main>
     );
   }
 
-  if (!currentPair || !currentPhase) {
+  if (!currentTask) {
     return (
       <div className="flex min-h-screen items-center justify-center text-lg">
         配對中...
       </div>
     );
   }
-
-  const sliderLabels = [
-    "A 明顯較佳",
-    "A 很較佳",
-    "A 稍較佳",
-    "A 略較佳",
-    "差不多",
-    "B 略較佳",
-    "B 稍較佳",
-    "B 很較佳",
-    "B 明顯較佳",
-  ];
-
-  const sliderIndex = slider + 4;
 
   return (
     <main className="min-h-screen bg-neutral-100 px-4 py-6 md:px-6 md:py-10">
@@ -510,89 +434,72 @@ export default function ThreadsImageSorter() {
             Threads Image Sorter
           </h1>
           <p className="mt-3 text-sm text-neutral-600 md:text-base">
-            兩階段排序：先全體粗排，再針對前段圖片精排
+            完整排序模式：用人工比較完成真正的完整排名
           </p>
-          <p className="mt-3 text-base font-medium text-neutral-800">
-            {currentPhase.label}
-          </p>
-          <p className="mt-2 text-lg font-medium text-neutral-800">
-            第 {round} 輪 / {currentPhase.rounds} 輪　・　第 {pairIndex + 1} 組 / {currentPairs.length} 組
-          </p>
-          <p className="mt-2 text-sm text-neutral-500">
-            已完成 {completedComparisons} / 約 {totalComparisonsEstimate} 題
+          <p className="mt-3 text-lg font-medium text-neutral-800">
+            已比較 {history.length} 次　・　目前待合併群組：{totalGroups}
           </p>
         </header>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_420px_1fr] md:items-center md:gap-6">
-          <div className="rounded-[28px] border border-neutral-300 bg-white p-3 shadow-sm">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[1fr_320px_1fr] md:items-center md:gap-6">
+          <button
+            type="button"
+            onClick={chooseLeft}
+            className="rounded-[28px] border border-neutral-300 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
             <div className="mb-2 text-center text-sm font-medium text-neutral-500">
-              A 圖
+              左邊較佳
             </div>
             <div className="flex h-[520px] items-center justify-center overflow-hidden rounded-[22px] bg-neutral-100">
               <img
-                src={currentPair.left.imageUrl}
-                alt={`Post ${currentPair.left.id}`}
+                src={currentTask.left.imageUrl}
+                alt={`Post ${currentTask.left.id}`}
                 className="max-h-full max-w-full object-contain"
                 draggable={false}
               />
             </div>
-          </div>
+          </button>
 
           <div className="rounded-[28px] border border-neutral-300 bg-white p-5 shadow-sm">
-            <div className="mb-4 text-center text-sm text-neutral-500">
-              請拖動拉桿，表示兩張圖在「成效感覺」上的差距
+            <div className="text-center text-sm text-neutral-500">
+              請選擇哪一張圖片的成效感覺較好
             </div>
 
-            <div className="mb-3 flex items-center justify-between text-xs text-neutral-500">
-              <span>A 成效較佳</span>
-              <span>B 成效較佳</span>
-            </div>
+            <div className="mt-6 flex flex-col gap-3">
+              <button
+                onClick={chooseTie}
+                className="rounded-xl bg-neutral-500 px-4 py-3 text-white transition hover:opacity-90"
+              >
+                看不出來 / 差不多
+              </button>
 
-            <input
-              type="range"
-              min={-4}
-              max={4}
-              step={1}
-              value={slider}
-              onChange={(e) => setSlider(Number(e.target.value))}
-              className="w-full"
-            />
-
-            <div className="mt-3 text-center text-sm font-medium text-neutral-800">
-              {sliderLabels[sliderIndex]}
-            </div>
-
-            <div className="mt-6 flex flex-wrap justify-center gap-3">
               <button
                 onClick={handlePrev}
                 disabled={history.length === 0}
-                className="rounded-xl bg-neutral-300 px-4 py-2.5 text-neutral-900 disabled:opacity-50"
+                className="rounded-xl bg-neutral-300 px-4 py-3 text-neutral-900 disabled:opacity-50"
               >
                 上一題
-              </button>
-
-              <button
-                onClick={() => applyVote(slider)}
-                className="rounded-xl bg-black px-5 py-2.5 text-white transition hover:opacity-90"
-              >
-                下一題
               </button>
             </div>
           </div>
 
-          <div className="rounded-[28px] border border-neutral-300 bg-white p-3 shadow-sm">
+          <button
+            type="button"
+            onClick={chooseRight}
+            className="rounded-[28px] border border-neutral-300 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+          >
             <div className="mb-2 text-center text-sm font-medium text-neutral-500">
-              B 圖
+              右邊較佳
             </div>
             <div className="flex h-[520px] items-center justify-center overflow-hidden rounded-[22px] bg-neutral-100">
               <img
-                src={currentPair.right.imageUrl}
-                alt={`Post ${currentPair.right.id}`}
+                src={currentTask.right.imageUrl}
+                alt={`Post ${currentTask.right.id}`}
                 className="max-h-full max-w-full object-contain"
                 draggable={false}
               />
             </div>
-          </div>
+          </button>
         </div>
       </div>
     </main>
