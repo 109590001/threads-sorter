@@ -50,6 +50,7 @@ export default function ThreadsImageSorter() {
 
   function initializeWithPosts(sourcePosts: Post[]) {
     const shuffled = shuffle(sourcePosts);
+
     setPosts(sourcePosts);
     setPending(shuffled.map((p) => [p]));
     setCompleted([]);
@@ -161,10 +162,28 @@ export default function ThreadsImageSorter() {
         }
       : null;
 
-  const totalGroups =
-    pending.length +
-    completed.length +
-    (leftQueue.length || rightQueue.length || merged.length ? 1 : 0);
+  const estimatedTotalComparisons = useMemo(() => {
+    const n = posts.length;
+    if (n <= 1) return 0;
+
+    const m = Math.ceil(Math.log2(n));
+    return n * m - 2 ** m + 1;
+  }, [posts.length]);
+
+  const completedComparisons = history.length;
+
+  const progressPercent =
+    estimatedTotalComparisons > 0
+      ? Math.min(
+          100,
+          Math.round((completedComparisons / estimatedTotalComparisons) * 100)
+        )
+      : 0;
+
+  const remainingComparisons = Math.max(
+    estimatedTotalComparisons - completedComparisons,
+    0
+  );
 
   function saveHistory(result: "left" | "right" | "tie") {
     setHistory((prev) => [
@@ -372,7 +391,7 @@ export default function ThreadsImageSorter() {
                 已完成完整排序。這份結果是完整名次，不是單純配對加分。
               </p>
               <p className="mt-1 text-sm text-neutral-500">
-                總比較次數：{history.length}
+                總比較次數：{completedComparisons}
               </p>
             </div>
 
@@ -437,7 +456,8 @@ export default function ThreadsImageSorter() {
             完整排序模式：用人工比較完成真正的完整排名
           </p>
           <p className="mt-3 text-lg font-medium text-neutral-800">
-            已比較 {history.length} 次　・　目前待合併群組：{totalGroups}
+            已完成 {progressPercent}%　・　已比較 {completedComparisons} 次　・　預估剩下{" "}
+            {remainingComparisons} 次
           </p>
         </header>
 
