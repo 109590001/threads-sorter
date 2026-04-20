@@ -2,31 +2,29 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 type FormDataType = {
-  participantId: string;
   age: string;
   gender: string;
   threadsFrequency: string;
   dailyUsageMinutes: string;
   postingFrequency: string;
-  consent: boolean;
 };
 
 const initialForm: FormDataType = {
-  participantId: "",
   age: "",
   gender: "",
   threadsFrequency: "",
   dailyUsageMinutes: "",
   postingFrequency: "",
-  consent: false,
 };
 
 export default function IntakePage() {
   const router = useRouter();
   const [form, setForm] = useState<FormDataType>(initialForm);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   function updateField<K extends keyof FormDataType>(
     key: K,
@@ -35,14 +33,9 @@ export default function IntakePage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError("");
-
-    if (!form.participantId.trim()) {
-      setError("請輸入受試者編號");
-      return;
-    }
 
     if (!form.age) {
       setError("請選擇年齡");
@@ -69,18 +62,59 @@ export default function IntakePage() {
       return;
     }
 
-    if (!form.consent) {
-      setError("請先勾選同意參與研究");
-      return;
+    setSubmitting(true);
+
+    try {
+      const participantId = crypto.randomUUID();
+
+      const payload = {
+        participant_id: participantId,
+        age: form.age,
+        gender: form.gender,
+        threads_frequency: form.threadsFrequency,
+        daily_usage_minutes: form.dailyUsageMinutes,
+        posting_frequency: form.postingFrequency,
+      };
+
+      const { data, error } = await supabase
+        .from("participant_sessions")
+        .insert(payload)
+        .select("id, participant_id, participant_code")
+        .single();
+
+      if (error || !data) {
+        console.error("supabase insert failed");
+        console.error("insert payload:", payload);
+        console.error("supabase insert error:", error);
+        console.error(
+          "supabase insert error json:",
+          JSON.stringify(error, null, 2)
+        );
+
+        setError(error?.message || "資料送出失敗，請稍後再試");
+        return;
+      }
+
+      const profile = {
+        participantId: data.participant_code ?? data.participant_id,
+        age: form.age,
+        gender: form.gender,
+        threadsFrequency: form.threadsFrequency,
+        dailyUsageMinutes: form.dailyUsageMinutes,
+        postingFrequency: form.postingFrequency,
+        submittedAt: new Date().toISOString(),
+      };
+
+      localStorage.setItem("participant_session_id", data.id);
+      localStorage.setItem("participant_profile", JSON.stringify(profile));
+
+      router.push("/sorter");
+    } catch (err) {
+      console.error("handleSubmit unexpected error:", err);
+      setError("資料送出失敗，請稍後再試");
+    } finally {
+      setSubmitting(false);
     }
-
-    const payload = {
-      ...form,
-      submittedAt: new Date().toISOString(),
-    };
-
-    localStorage.setItem("participant_profile", JSON.stringify(payload));
-    router.push("/sorter");
   }
 
   return (
@@ -88,27 +122,20 @@ export default function IntakePage() {
       <div className="mx-auto max-w-2xl rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm md:p-8">
         <h1 className="text-2xl font-bold text-neutral-900">受試者基本資料</h1>
         <p className="mt-2 text-sm leading-6 text-neutral-600">
-          請先填寫基本資料，再開始圖片比較任務。
+          請先填寫基本資料，再開始圖片比較任務。所有欄位皆為必填。
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-          <Field label="受試者編號">
-            <input
-              type="text"
-              value={form.participantId}
-              onChange={(e) => updateField("participantId", e.target.value)}
-              placeholder="例如 P001"
-              className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
-            />
-          </Field>
-
-          <Field label="年齡">
+          <Field label="年齡" required>
             <select
+              required
               value={form.age}
               onChange={(e) => updateField("age", e.target.value)}
               className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
             >
-              <option value="">請選擇</option>
+              <option value="" disabled>
+                請選擇
+              </option>
               <option value="18以下">18以下</option>
               <option value="18-24">18-24</option>
               <option value="25-34">25-34</option>
@@ -118,13 +145,16 @@ export default function IntakePage() {
             </select>
           </Field>
 
-          <Field label="性別">
+          <Field label="性別" required>
             <select
+              required
               value={form.gender}
               onChange={(e) => updateField("gender", e.target.value)}
               className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
             >
-              <option value="">請選擇</option>
+              <option value="" disabled>
+                請選擇
+              </option>
               <option value="男">男</option>
               <option value="女">女</option>
               <option value="非二元 / 多元性別">非二元 / 多元性別</option>
@@ -132,14 +162,16 @@ export default function IntakePage() {
             </select>
           </Field>
 
-          <Field label="你使用 Threads 的頻率">
+          <Field label="你使用 Threads 的頻率" required>
             <select
+              required
               value={form.threadsFrequency}
               onChange={(e) => updateField("threadsFrequency", e.target.value)}
               className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
             >
-              <option value="">請選擇</option>
-              <option value="每天">每天</option>
+              <option value="" disabled>
+                請選擇
+              </option>
               <option value="幾乎每天">幾乎每天</option>
               <option value="每週數次">每週數次</option>
               <option value="每週一次左右">每週一次左右</option>
@@ -148,28 +180,34 @@ export default function IntakePage() {
             </select>
           </Field>
 
-          <Field label="你每天平均使用 Threads 多久">
+          <Field label="你每天平均使用 Threads 多久" required>
             <select
+              required
               value={form.dailyUsageMinutes}
               onChange={(e) => updateField("dailyUsageMinutes", e.target.value)}
               className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
             >
-              <option value="">請選擇</option>
-              <option value="10-30分鐘以下">30分鐘以下</option>
+              <option value="" disabled>
+                請選擇
+              </option>
+              <option value="10分鐘以下">10分鐘以下</option>
+              <option value="10-30分鐘">10-30分鐘</option>
               <option value="31-60分鐘">31-60分鐘</option>
               <option value="1-2小時">1-2小時</option>
-              <option value="2-5小時">2-5小時</option>
-              <option value="5小時以上">5小時以上</option>
+              <option value="2小時以上">2小時以上</option>
             </select>
           </Field>
 
-          <Field label="你在 Threads 的發文頻率">
+          <Field label="你在 Threads 的發文頻率" required>
             <select
+              required
               value={form.postingFrequency}
               onChange={(e) => updateField("postingFrequency", e.target.value)}
               className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
             >
-              <option value="">請選擇</option>
+              <option value="" disabled>
+                請選擇
+              </option>
               <option value="幾乎每天發文">幾乎每天發文</option>
               <option value="每週數次發文">每週數次發文</option>
               <option value="偶爾發文">偶爾發文</option>
@@ -177,18 +215,6 @@ export default function IntakePage() {
               <option value="幾乎不發文">幾乎不發文</option>
             </select>
           </Field>
-
-          <label className="flex items-start gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-4">
-            <input
-              type="checkbox"
-              checked={form.consent}
-              onChange={(e) => updateField("consent", e.target.checked)}
-              className="mt-1"
-            />
-            <span className="text-sm leading-6 text-neutral-700">
-              我已了解本研究內容，並同意參與本次測驗。
-            </span>
-          </label>
 
           {error ? (
             <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
@@ -198,9 +224,10 @@ export default function IntakePage() {
 
           <button
             type="submit"
-            className="w-full rounded-2xl bg-black px-5 py-3.5 text-white transition hover:opacity-90"
+            disabled={submitting}
+            className="w-full rounded-2xl bg-black px-5 py-3.5 text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            開始測驗
+            {submitting ? "送出中..." : "開始測驗"}
           </button>
         </form>
       </div>
@@ -210,14 +237,19 @@ export default function IntakePage() {
 
 function Field({
   label,
+  required = false,
   children,
 }: {
   label: string;
+  required?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <label className="block">
-      <div className="mb-2 text-sm font-medium text-neutral-800">{label}</div>
+      <div className="mb-2 text-sm font-medium text-neutral-800">
+        {required ? <span className="mr-1 text-red-500">*</span> : null}
+        {label}
+      </div>
       {children}
     </label>
   );

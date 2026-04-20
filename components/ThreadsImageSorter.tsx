@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 type Post = {
   id: string;
@@ -30,15 +32,9 @@ function shuffle<T>(array: T[]) {
   return copy;
 }
 
-function escapeCsvValue(value: string | number) {
-  const s = String(value);
-  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
-
 export default function ThreadsImageSorter() {
+  const router = useRouter();
+
   const [posts, setPosts] = useState<Post[]>([]);
   const [pending, setPending] = useState<Post[][]>([]);
   const [completed, setCompleted] = useState<Post[][]>([]);
@@ -47,6 +43,7 @@ export default function ThreadsImageSorter() {
   const [merged, setMerged] = useState<Post[]>([]);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [ready, setReady] = useState(false);
+  const [savedToSupabase, setSavedToSupabase] = useState(false);
 
   function initializeWithPosts(sourcePosts: Post[]) {
     const shuffled = shuffle(sourcePosts);
@@ -59,6 +56,7 @@ export default function ThreadsImageSorter() {
     setMerged([]);
     setHistory([]);
     setReady(true);
+    setSavedToSupabase(false);
   }
 
   async function loadImagesAndInitialize() {
@@ -86,6 +84,7 @@ export default function ThreadsImageSorter() {
       setMerged([]);
       setHistory([]);
       setReady(true);
+      setSavedToSupabase(false);
     }
   }
 
@@ -157,9 +156,9 @@ export default function ThreadsImageSorter() {
   const currentTask: CompareTask | null =
     leftQueue.length > 0 && rightQueue.length > 0
       ? {
-          left: leftQueue[0],
-          right: rightQueue[0],
-        }
+        left: leftQueue[0],
+        right: rightQueue[0],
+      }
       : null;
 
   const estimatedTotalComparisons = useMemo(() => {
@@ -175,9 +174,9 @@ export default function ThreadsImageSorter() {
   const progressPercent =
     estimatedTotalComparisons > 0
       ? Math.min(
-          100,
-          Math.round((completedComparisons / estimatedTotalComparisons) * 100)
-        )
+        100,
+        Math.round((completedComparisons / estimatedTotalComparisons) * 100)
+      )
       : 0;
 
   const remainingComparisons = Math.max(
@@ -285,75 +284,103 @@ export default function ThreadsImageSorter() {
     }
   }
 
-  function handleExportCsv() {
-    if (!finishedRanking) return;
+  async function saveResultsToSupabase() {
+  if (!finishedRanking || savedToSupabase) return;
 
-    const participantRaw =
-      typeof window !== "undefined"
-        ? localStorage.getItem("participant_profile")
-        : null;
+  const sessionId =
+    typeof window !== "undefined"
+      ? localStorage.getItem("participant_session_id")
+      : null;
 
-    const participant = participantRaw
-      ? JSON.parse(participantRaw)
-      : {
-          participantId: "",
-          age: "",
-          gender: "",
-          threadsFrequency: "",
-          dailyUsageMinutes: "",
-          postingFrequency: "",
-        };
-
-    const header = [
-      "participantId",
-      "age",
-      "gender",
-      "threadsFrequency",
-      "dailyUsageMinutes",
-      "postingFrequency",
-      "rank",
-      "id",
-      "imageUrl",
-    ];
-
-    const rows = finishedRanking.map((item, index) => [
-      participant.participantId,
-      participant.age,
-      participant.gender,
-      participant.threadsFrequency,
-      participant.dailyUsageMinutes,
-      participant.postingFrequency,
-      index + 1,
-      item.id,
-      item.imageUrl,
-    ]);
-
-    const csv = [
-      header.map(escapeCsvValue).join(","),
-      ...rows.map((row) => row.map(escapeCsvValue).join(",")),
-    ].join("\n");
-
-    const blob = new Blob(["\uFEFF" + csv], {
-      type: "text/csv;charset=utf-8;",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    const timestamp = new Date()
-      .toISOString()
-      .slice(0, 19)
-      .replace(/[:T]/g, "-");
-
-    a.href = url;
-    a.download = `threads-complete-ranking-${
-      participant.participantId || "unknown"
-    }-${timestamp}.csv`;
-
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  if (!sessionId) {
+    console.warn("找不到 participant_session_id");
+    return;
   }
+
+  const rankingRows = finishedRanking.map((item, index) => ({
+    session_id: sessionId,
+    rank: index + 1,
+    image_id: String(item.id),
+    image_url: String(item.imageUrl ?? ""),
+  }));
+
+  const invalidRow = rankingRows.find(
+    (row) =>
+      !row.session_id ||
+      !row.rank ||
+      !row.image_id.trim() ||
+      !row.image_url.trim()
+  );
+
+  if (invalidRow) {
+    console.error("ranking_results payload 有缺值", invalidRow);
+    console.error("完整 rankingRows:", rankingRows);
+    return;
+  }
+
+  const { error: deleteError, status: deleteStatus } = await supabase
+    .from("ranking_results")
+    .delete()
+    .eq("session_id", sessionId);
+
+  if (deleteError) {
+    console.error("刪除舊 ranking_results 失敗");
+    console.error("delete status:", deleteStatus);
+    console.error("delete error raw:", deleteError);
+    console.error("delete error json:", JSON.stringify(deleteError, null, 2));
+    return;
+  }
+
+  const {
+    data: insertData,
+    error: insertError,
+    status: insertStatus,
+    statusText: insertStatusText,
+  } = await supabase
+    .from("ranking_results")
+    .insert(rankingRows)
+    .select();
+
+  if (insertError) {
+    console.error("寫入 ranking_results 失敗");
+    console.error("insert status:", insertStatus);
+    console.error("insert statusText:", insertStatusText);
+    console.error("rankingRows:", rankingRows);
+    console.error("insert error raw:", insertError);
+    console.error("insert error json:", JSON.stringify(insertError, null, 2));
+    return;
+  }
+
+  console.log("ranking_results 寫入成功", insertData);
+
+  const {
+    error: updateError,
+    status: updateStatus,
+    statusText: updateStatusText,
+  } = await supabase
+    .from("participant_sessions")
+    .update({
+      total_comparisons: history.length,
+    })
+    .eq("id", sessionId);
+
+  if (updateError) {
+    console.error("更新 participant_sessions 失敗");
+    console.error("update status:", updateStatus);
+    console.error("update statusText:", updateStatusText);
+    console.error("update error raw:", updateError);
+    console.error("update error json:", JSON.stringify(updateError, null, 2));
+    return;
+  }
+
+  setSavedToSupabase(true);
+}
+
+  useEffect(() => {
+    if (finishedRanking && !savedToSupabase) {
+      saveResultsToSupabase();
+    }
+  }, [finishedRanking, savedToSupabase]);
 
   if (!ready) {
     return (
@@ -379,58 +406,27 @@ export default function ThreadsImageSorter() {
       </div>
     );
   }
-
   if (finishedRanking) {
     return (
-      <main className="min-h-screen bg-neutral-100 p-6">
-        <div className="mx-auto max-w-7xl">
-          <div className="mb-6 flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-            <div>
-              <h1 className="text-3xl font-bold text-neutral-900">排序結果</h1>
-              <p className="mt-2 text-sm text-neutral-600">
-                已完成完整排序。這份結果是完整名次，不是單純配對加分。
-              </p>
-              <p className="mt-1 text-sm text-neutral-500">
-                總比較次數：{completedComparisons}
-              </p>
-            </div>
+      <main className="flex min-h-screen items-center justify-center bg-neutral-100 px-4">
+        <div className="w-full max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm">
+          <h1 className="text-3xl font-bold text-neutral-900">排序完成</h1>
 
-            <div className="flex gap-3">
-              <button
-                onClick={handleExportCsv}
-                className="rounded-xl bg-green-600 px-4 py-2.5 text-white transition hover:opacity-90"
-              >
-                匯出 CSV
-              </button>
-              <button
-                onClick={handleRestart}
-                className="rounded-xl bg-black px-4 py-2.5 text-white transition hover:opacity-90"
-              >
-                重新開始
-              </button>
-            </div>
-          </div>
+          <p className="mt-3 text-sm leading-6 text-neutral-600">
+            你已完成本次圖片排序，可以前往結果頁查看完整排名。
+          </p>
 
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-5">
-            {finishedRanking.map((post, index) => (
-              <div
-                key={post.id}
-                className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm"
-              >
-                <div className="flex items-center justify-between border-b border-neutral-100 px-3 py-2">
-                  <div className="font-bold text-neutral-900">#{index + 1}</div>
-                  <div className="text-xs text-neutral-500">ID {post.id}</div>
-                </div>
+          <p className="mt-2 text-sm text-neutral-500">
+            總比較次數：{completedComparisons}
+          </p>
 
-                <div className="flex h-[240px] items-center justify-center bg-neutral-50 p-3">
-                  <img
-                    src={post.imageUrl}
-                    alt={`Post ${post.id}`}
-                    className="max-h-full max-w-full object-contain"
-                  />
-                </div>
-              </div>
-            ))}
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            <button
+              onClick={() => router.push("/result")}
+              className="rounded-xl bg-black px-5 py-3 text-white transition hover:opacity-90"
+            >
+              查看結果
+            </button>
           </div>
         </div>
       </main>
@@ -452,9 +448,6 @@ export default function ThreadsImageSorter() {
           <h1 className="text-3xl font-bold tracking-tight text-neutral-900">
             Threads Image Sorter
           </h1>
-          <p className="mt-3 text-sm text-neutral-600 md:text-base">
-            完整排序模式：用人工比較完成真正的完整排名
-          </p>
           <p className="mt-3 text-lg font-medium text-neutral-800">
             已完成 {progressPercent}%　・　已比較 {completedComparisons} 次　・　預估剩下{" "}
             {remainingComparisons} 次
