@@ -285,96 +285,96 @@ export default function ThreadsImageSorter() {
   }
 
   async function saveResultsToSupabase() {
-  if (!finishedRanking || savedToSupabase) return;
+    if (!finishedRanking || savedToSupabase) return;
 
-  const sessionId =
-    typeof window !== "undefined"
-      ? localStorage.getItem("participant_session_id")
-      : null;
+    const sessionId =
+      typeof window !== "undefined"
+        ? localStorage.getItem("participant_session_id")
+        : null;
 
-  if (!sessionId) {
-    console.warn("找不到 participant_session_id");
-    return;
+    if (!sessionId) {
+      console.warn("找不到 participant_session_id");
+      return;
+    }
+
+    const rankingRows = finishedRanking.map((item, index) => ({
+      session_id: sessionId,
+      rank: index + 1,
+      image_id: String(item.id),
+      image_url: String(item.imageUrl ?? ""),
+    }));
+
+    const invalidRow = rankingRows.find(
+      (row) =>
+        !row.session_id ||
+        !row.rank ||
+        !row.image_id.trim() ||
+        !row.image_url.trim()
+    );
+
+    if (invalidRow) {
+      console.error("ranking_results payload 有缺值", invalidRow);
+      console.error("完整 rankingRows:", rankingRows);
+      return;
+    }
+
+    const { error: deleteError, status: deleteStatus } = await supabase
+      .from("ranking_results")
+      .delete()
+      .eq("session_id", sessionId);
+
+    if (deleteError) {
+      console.error("刪除舊 ranking_results 失敗");
+      console.error("delete status:", deleteStatus);
+      console.error("delete error raw:", deleteError);
+      console.error("delete error json:", JSON.stringify(deleteError, null, 2));
+      return;
+    }
+
+    const {
+      data: insertData,
+      error: insertError,
+      status: insertStatus,
+      statusText: insertStatusText,
+    } = await supabase
+      .from("ranking_results")
+      .insert(rankingRows)
+      .select();
+
+    if (insertError) {
+      console.error("寫入 ranking_results 失敗");
+      console.error("insert status:", insertStatus);
+      console.error("insert statusText:", insertStatusText);
+      console.error("rankingRows:", rankingRows);
+      console.error("insert error raw:", insertError);
+      console.error("insert error json:", JSON.stringify(insertError, null, 2));
+      return;
+    }
+
+    console.log("ranking_results 寫入成功", insertData);
+
+    const {
+      error: updateError,
+      status: updateStatus,
+      statusText: updateStatusText,
+    } = await supabase
+      .from("participant_sessions")
+      .update({
+        total_comparisons: history.length,
+      })
+      .eq("id", sessionId);
+
+    if (updateError) {
+      console.error("更新 participant_sessions 失敗");
+      console.error("update status:", updateStatus);
+      console.error("update statusText:", updateStatusText);
+      console.error("update error raw:", updateError);
+      console.error("update error json:", JSON.stringify(updateError, null, 2));
+      return;
+    }
+
+    setSavedToSupabase(true);
   }
-
-  const rankingRows = finishedRanking.map((item, index) => ({
-    session_id: sessionId,
-    rank: index + 1,
-    image_id: String(item.id),
-    image_url: String(item.imageUrl ?? ""),
-  }));
-
-  const invalidRow = rankingRows.find(
-    (row) =>
-      !row.session_id ||
-      !row.rank ||
-      !row.image_id.trim() ||
-      !row.image_url.trim()
-  );
-
-  if (invalidRow) {
-    console.error("ranking_results payload 有缺值", invalidRow);
-    console.error("完整 rankingRows:", rankingRows);
-    return;
-  }
-
-  const { error: deleteError, status: deleteStatus } = await supabase
-    .from("ranking_results")
-    .delete()
-    .eq("session_id", sessionId);
-
-  if (deleteError) {
-    console.error("刪除舊 ranking_results 失敗");
-    console.error("delete status:", deleteStatus);
-    console.error("delete error raw:", deleteError);
-    console.error("delete error json:", JSON.stringify(deleteError, null, 2));
-    return;
-  }
-
-  const {
-    data: insertData,
-    error: insertError,
-    status: insertStatus,
-    statusText: insertStatusText,
-  } = await supabase
-    .from("ranking_results")
-    .insert(rankingRows)
-    .select();
-
-  if (insertError) {
-    console.error("寫入 ranking_results 失敗");
-    console.error("insert status:", insertStatus);
-    console.error("insert statusText:", insertStatusText);
-    console.error("rankingRows:", rankingRows);
-    console.error("insert error raw:", insertError);
-    console.error("insert error json:", JSON.stringify(insertError, null, 2));
-    return;
-  }
-
-  console.log("ranking_results 寫入成功", insertData);
-
-  const {
-    error: updateError,
-    status: updateStatus,
-    statusText: updateStatusText,
-  } = await supabase
-    .from("participant_sessions")
-    .update({
-      total_comparisons: history.length,
-    })
-    .eq("id", sessionId);
-
-  if (updateError) {
-    console.error("更新 participant_sessions 失敗");
-    console.error("update status:", updateStatus);
-    console.error("update statusText:", updateStatusText);
-    console.error("update error raw:", updateError);
-    console.error("update error json:", JSON.stringify(updateError, null, 2));
-    return;
-  }
-
-  setSavedToSupabase(true);
-}
 
   useEffect(() => {
     if (finishedRanking && !savedToSupabase) {
@@ -449,6 +449,9 @@ export default function ThreadsImageSorter() {
             Threads Image Sorter
           </h1>
           <p className="mt-3 text-lg font-medium text-neutral-800">
+            請選擇哪一張圖片的成效感覺較好
+          </p>
+          <p className="mt-3 text-lg font-medium text-neutral-800">
             已完成 {progressPercent}%　・　已比較 {completedComparisons} 次　・　預估剩下{" "}
             {remainingComparisons} 次
           </p>
@@ -461,7 +464,7 @@ export default function ThreadsImageSorter() {
             className="rounded-[28px] border border-neutral-300 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
           >
             <div className="mb-2 text-center text-sm font-medium text-neutral-500">
-              左邊較佳
+              這邊較佳
             </div>
             <div className="flex h-[520px] items-center justify-center overflow-hidden rounded-[22px] bg-neutral-100">
               <img
@@ -502,7 +505,7 @@ export default function ThreadsImageSorter() {
             className="rounded-[28px] border border-neutral-300 bg-white p-3 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
           >
             <div className="mb-2 text-center text-sm font-medium text-neutral-500">
-              右邊較佳
+              這邊較佳
             </div>
             <div className="flex h-[520px] items-center justify-center overflow-hidden rounded-[22px] bg-neutral-100">
               <img
