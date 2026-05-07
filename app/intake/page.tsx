@@ -119,6 +119,32 @@ export default function IntakePage() {
 
   return (
     <main className="min-h-screen bg-neutral-100 px-4 py-8 md:px-6 md:py-12">
+      <div className="mb-6 rounded-2xl border border-black/10 bg-white p-5 text-sm leading-relaxed">
+        <h1 className="text-2xl font-bold text-neutral-900">作答說明</h1>
+
+        <ul className="space-y-2 text-black/80">
+          <li>
+            請判斷哪一篇貼文更可能在 Threads 上爆紅（獲得更高互動）
+            <br />
+            <span className="text-black/50">
+              （爆紅定義：更可能被按讚、留言、轉發或擴散）
+            </span>
+          </li>
+
+          <li>
+            請以貼文本身呈現為準，不需考慮品牌粉絲數或個人喜好
+          </li>
+
+          <li>
+            若真的看不出差異，可選擇「看不出來／差不多」
+          </li>
+
+          <li>
+            測驗最後會產生你的貼文排名，你可以再手動調整一次心目中的爆紅名次，
+            並按下「送出」，測驗方算完成
+          </li>
+        </ul>
+      </div>
       <div className="mx-auto max-w-2xl rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm md:p-8">
         <h1 className="text-2xl font-bold text-neutral-900">受試者基本資料</h1>
         <p className="mt-2 text-sm leading-6 text-neutral-600">

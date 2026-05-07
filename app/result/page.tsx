@@ -112,7 +112,7 @@ export default function ResultPage() {
     <main className="min-h-screen bg-neutral-100 p-6">
       <div className="mx-auto max-w-6xl">
         <div className="mb-6 flex items-center justify-between gap-4">
-          <h1 className="text-3xl font-bold">你的排序結果</h1>
+          <h1 className="text-3xl font-bold">你的排序結果（記得按底下送出！）</h1>
           <div className="text-sm text-neutral-500">
             可用箭頭微調，確認後才會儲存
           </div>

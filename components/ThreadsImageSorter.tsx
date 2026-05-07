@@ -452,8 +452,7 @@ export default function ThreadsImageSorter() {
             請選擇哪一張圖片的成效感覺較好
           </p>
           <p className="mt-3 text-lg font-medium text-neutral-800">
-            已完成 {progressPercent}%　・　已比較 {completedComparisons} 次　・　預估剩下{" "}
-            {remainingComparisons} 次
+            已比較 {completedComparisons} 次，預計比較次數：70
           </p>
         </header>
 
