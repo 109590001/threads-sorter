@@ -410,10 +410,10 @@ export default function ThreadsImageSorter() {
     return (
       <main className="flex min-h-screen items-center justify-center bg-neutral-100 px-4">
         <div className="w-full max-w-xl rounded-3xl bg-white p-8 text-center shadow-sm">
-          <h1 className="text-3xl font-bold text-neutral-900">排序完成</h1>
+          <h1 className="text-3xl font-bold text-neutral-900">請按下方察看結果按鈕</h1>
 
           <p className="mt-3 text-sm leading-6 text-neutral-600">
-            你已完成本次圖片排序，可以前往結果頁查看完整排名。
+            請按下方察看結果按鈕
           </p>
 
           <p className="mt-2 text-sm text-neutral-500">
