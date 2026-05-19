@@ -53,39 +53,51 @@ export default function IntakePage() {
             return;
         }
 
+        if (!form.dailyUsageMinutes) {
+            setError("請選擇每日使用時間");
+            return;
+        }
+
+        if (!form.postingFrequency) {
+            setError("請選擇發文頻率");
+            return;
+        }
+
         setSubmitting(true);
 
         try {
-            const participantId = uuidv4();
+            const participantId = crypto.randomUUID();
+            const participantCode = `ws-${Date.now()}`;
+
             const payload = {
-                participant_code: participantId,
+                participant_id: participantId,
+                participant_code: participantCode,
                 age: form.age,
                 gender: form.gender,
                 threads_frequency: form.threadsFrequency,
                 daily_usage_minutes: form.dailyUsageMinutes,
                 posting_frequency: form.postingFrequency,
-                dataset_version: "words_v1",
+                dataset_version: "v1",
             };
+
             const { data, error } = await supabase
                 .from("wordsort_participant_sessions")
                 .insert(payload)
-                .select()
+                .select("id, participant_id, participant_code")
                 .single();
+
             if (error || !data) {
                 console.error("supabase insert failed");
                 console.error("insert payload:", payload);
                 console.error("supabase insert error:", error);
-                console.error(
-                    "supabase insert error json:",
-                    JSON.stringify(error, null, 2)
-                );
 
                 setError(error?.message || "資料送出失敗，請稍後再試");
                 return;
             }
 
             const profile = {
-                participantId: data.participant_code ?? data.participant_id,
+                participantId: data.participant_id,
+                participantCode: data.participant_code,
                 age: form.age,
                 gender: form.gender,
                 threadsFrequency: form.threadsFrequency,
@@ -95,6 +107,7 @@ export default function IntakePage() {
             };
 
             localStorage.setItem("participant_session_id", data.id);
+            localStorage.setItem("participant_id", data.participant_id);
             localStorage.setItem("participant_profile", JSON.stringify(profile));
 
             router.push("/wordsort");
@@ -110,15 +123,19 @@ export default function IntakePage() {
         <main className="min-h-screen bg-neutral-100 px-4 py-8 md:px-6 md:py-12">
             <div className="mb-6 rounded-2xl border border-black/10 bg-white p-5 text-sm leading-relaxed">
                 <h1 className="text-2xl font-bold text-neutral-900">作答說明</h1>
-
+                <p className="mt-3 text-xl leading-7 text-black/70">
+                    接下來會看到兩則 Threads 串文的文案，請依照你過去在 Threads
+                    的使用經驗，判斷哪一篇貼文更有可能爆紅。
+                </p>
                 <ul className="space-y-2 text-black/80">
                     <li>
                         請判斷哪一篇貼文更可能在 Threads 上爆紅（獲得更高互動）
-                        <br />
-                        <span className="text-black/50">
-                            （爆紅定義：更可能被按讚、留言、轉發或擴散）
-                        </span>
                     </li>
+                    <li>
+                        爆紅定義：更可能被按讚、留言、轉發或擴散
+
+                    </li>
+
 
                     <li>
                         請以貼文本身呈現為準，不需考慮品牌粉絲數或個人喜好
@@ -137,7 +154,7 @@ export default function IntakePage() {
             <div className="mx-auto max-w-2xl rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm md:p-8">
                 <h1 className="text-2xl font-bold text-neutral-900">受試者基本資料</h1>
                 <p className="mt-2 text-sm leading-6 text-neutral-600">
-                    請先填寫基本資料，再開始圖片比較任務。所有欄位皆為必填。
+                    請先填寫基本資料，再開始串文比較任務。所有欄位皆為必填。
                 </p>
 
                 <form onSubmit={handleSubmit} className="mt-6 space-y-5">
@@ -192,6 +209,42 @@ export default function IntakePage() {
                             <option value="每週一次左右">每週一次左右</option>
                             <option value="每月數次">每月數次</option>
                             <option value="幾乎不用">幾乎不用</option>
+                        </select>
+                    </Field>
+
+                    <Field label="你每天平均使用 Threads 多久" required>
+                        <select
+                            required
+                            value={form.dailyUsageMinutes}
+                            onChange={(e) => updateField("dailyUsageMinutes", e.target.value)}
+                            className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
+                        >
+                            <option value="" disabled>
+                                請選擇
+                            </option>
+                            <option value="10分鐘以下">10分鐘以下</option>
+                            <option value="10-30分鐘">10-30分鐘</option>
+                            <option value="31-60分鐘">31-60分鐘</option>
+                            <option value="1-2小時">1-2小時</option>
+                            <option value="2小時以上">2小時以上</option>
+                        </select>
+                    </Field>
+
+                    <Field label="你在 Threads 的發文頻率" required>
+                        <select
+                            required
+                            value={form.postingFrequency}
+                            onChange={(e) => updateField("postingFrequency", e.target.value)}
+                            className="w-full rounded-xl border border-neutral-300 px-4 py-3 outline-none transition focus:border-neutral-500"
+                        >
+                            <option value="" disabled>
+                                請選擇
+                            </option>
+                            <option value="幾乎每天發文">幾乎每天發文</option>
+                            <option value="每週數次發文">每週數次發文</option>
+                            <option value="偶爾發文">偶爾發文</option>
+                            <option value="很少發文">很少發文</option>
+                            <option value="幾乎不發文">幾乎不發文</option>
                         </select>
                     </Field>
 

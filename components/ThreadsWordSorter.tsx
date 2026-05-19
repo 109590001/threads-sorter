@@ -45,26 +45,32 @@ export default function ThreadsWordSorter() {
             const participantSessionId = localStorage.getItem(
                 "participant_session_id"
             );
+            const participantId = localStorage.getItem("participant_id");
 
-            if (!participantSessionId) {
+            if (!participantSessionId || !participantId) {
                 alert("找不到 participant session，請回到基本資料頁重新開始。");
                 return;
             }
 
             const startIso = new Date().toISOString();
 
-            const { error: sessionError } = await supabase
+            const { data: sessionData, error: sessionError } = await supabase
                 .from("wordsort_sessions")
                 .insert({
                     participant_session_id: participantSessionId,
+                    participant_id: participantId,
                     started_at: startIso,
-                });
+                })
+                .select("id")
+                .single();
 
-            if (sessionError) {
+            if (sessionError || !sessionData) {
                 console.error("建立 wordsort_sessions 失敗", sessionError);
                 alert("建立 wordsort session 失敗");
                 return;
             }
+
+            localStorage.setItem("wordsort_session_id", sessionData.id);
 
             setStartTime(Date.now());
             setStartedAtIso(startIso);
@@ -170,9 +176,11 @@ export default function ThreadsWordSorter() {
     async function saveFinalRanking() {
         setSaving(true);
 
-        const sessionId = localStorage.getItem("participant_session_id");
+        const sessionId = localStorage.getItem("wordsort_session_id");
+        
+        const participantId = localStorage.getItem("participant_id");
 
-        if (!sessionId) {
+        if (!sessionId || !participantId) {
             alert("找不到測驗 session，請回到基本資料頁重新開始。");
             setSaving(false);
             return;
@@ -180,12 +188,15 @@ export default function ThreadsWordSorter() {
 
         const rows = finalRanking.map((item) => ({
             session_id: sessionId,
+            participant_id: participantId,
             rank: item.rank,
             word_id: item.word_id,
             content: item.content,
         }));
 
-        const { error } = await supabase.from("word_ranking_results").insert(rows);
+        const { error } = await supabase
+            .from("word_ranking_results")
+            .insert(rows);
 
         if (error) {
             console.error("寫入 word_ranking_results 失敗", error);
@@ -202,8 +213,7 @@ export default function ThreadsWordSorter() {
                     duration_seconds: Math.floor((Date.now() - startTime) / 1000),
                     total_comparisons: pairs.length,
                 })
-                .eq("participant_session_id", sessionId)
-                .eq("started_at", startedAtIso);
+                .eq("id", sessionId);
 
             if (sessionUpdateError) {
                 console.error("更新 wordsort_sessions 失敗", sessionUpdateError);
