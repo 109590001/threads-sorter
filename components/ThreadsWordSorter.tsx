@@ -33,7 +33,7 @@ export default function ThreadsWordSorter() {
         "loading"
     );
     const [saving, setSaving] = useState(false);
-    const [showGuide, setShowGuide] = useState(false);
+    const [showGuide, setShowGuide] = useState(true);
     const [startTime, setStartTime] = useState<number | null>(null);
     const [startedAtIso, setStartedAtIso] = useState<string | null>(null);
 
@@ -177,7 +177,7 @@ export default function ThreadsWordSorter() {
         setSaving(true);
 
         const sessionId = localStorage.getItem("wordsort_session_id");
-        
+
         const participantId = localStorage.getItem("participant_id");
 
         if (!sessionId || !participantId) {
@@ -248,16 +248,20 @@ export default function ThreadsWordSorter() {
 
                     {showGuide && (
                         <div className="border-t border-gray-100 px-5 pb-5 pt-4">
-                            <p className="text-gray-700">
-                                請選出你覺得「更可能在 Threads 爆紅」的貼文。
+                            <p className="mt-2 text-sm text-gray-500">
+                                請選出「更可能在 Threads 爆紅」的貼文。
                             </p>
 
-                            <p className="mt-2 font-semibold text-blue-600">
+                            <p className="mt-2 font-semibold text-red-500">
+                                不是選喜歡的貼文文案，而是選「更容易獲得大量按讚、留言、轉發與擴散」的內容
+                            </p>
+
+                            <p className="mt-2 text-sm text-gray-500">
                                 點擊整張文字卡片即可選擇。
                             </p>
 
                             <p className="mt-2 text-sm text-gray-500">
-                                爆紅定義：較可能獲得按讚、留言、轉發與擴散。請以貼文本身內容為準。
+                                請以貼文本身內容判斷，不需考慮個人的喜好。
                             </p>
                         </div>
                     )}

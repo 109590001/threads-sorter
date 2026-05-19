@@ -129,16 +129,13 @@ export default function IntakePage() {
                 </p>
                 <ul className="space-y-2 text-black/80">
                     <li>
-                        請判斷哪一篇貼文更可能在 Threads 上爆紅（獲得更高互動）
-                    </li>
-                    <li>
                         爆紅定義：更可能被按讚、留言、轉發或擴散
 
                     </li>
 
 
                     <li>
-                        請以貼文本身呈現為準，不需考慮品牌粉絲數或個人喜好
+                        請以貼文本身呈現為準，不需考慮品牌或個人喜好
                     </li>
 
                     <li>
