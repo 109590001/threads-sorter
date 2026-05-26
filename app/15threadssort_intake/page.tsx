@@ -1,0 +1,386 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+
+type FormDataType = {
+    age: string;
+    gender: string;
+    threadsFrequency: string;
+    dailyUsageMinutes: string;
+    postingFrequency: string;
+};
+
+const initialForm: FormDataType = {
+    age: "",
+    gender: "",
+    threadsFrequency: "",
+    dailyUsageMinutes: "",
+    postingFrequency: "",
+};
+
+export default function IntakePage() {
+    const router = useRouter();
+
+    const [form, setForm] =
+        useState<FormDataType>(initialForm);
+
+    const [error, setError] = useState("");
+
+    const [submitting, setSubmitting] =
+        useState(false);
+
+    function updateField<K extends keyof FormDataType>(
+        key: K,
+        value: FormDataType[K]
+    ) {
+        setForm((prev) => ({
+            ...prev,
+            [key]: value,
+        }));
+    }
+
+    async function handleStart(
+        e: React.FormEvent
+    ) {
+        e.preventDefault();
+
+        setError("");
+        setSubmitting(true);
+
+        const { data, error } = await supabase
+            .from("thread15_participant_sessions")
+            .insert([
+                {
+                    age: form.age,
+                    gender: form.gender,
+                    threads_frequency:
+                        form.threadsFrequency,
+
+                    daily_usage_minutes:
+                        form.dailyUsageMinutes,
+
+                    posting_frequency:
+                        form.postingFrequency,
+                },
+            ])
+            .select()
+            .single();
+
+        if (error) {
+            console.error("Supabase error:", {
+                message: error.message,
+                details: error.details,
+                hint: error.hint,
+                code: error.code,
+            });
+
+            setError(error.message || "建立 session 失敗");
+
+            setSubmitting(false);
+
+            return;
+        }
+
+        localStorage.setItem(
+            "thread15_session_id",
+            data.id
+        );
+
+        router.push("/15threadssort");
+    }
+
+    return (
+        <main className="min-h-screen bg-neutral-100 px-4 py-8 md:px-6 md:py-12">
+            <div className="mb-6 rounded-2xl border border-black/10 bg-white p-5 text-sm leading-relaxed">
+                <h1 className="text-2xl font-bold text-neutral-900">
+                    作答說明
+                </h1>
+
+                <p className="mt-3 text-base leading-7 text-black/70">
+                    接下來會看到兩則 Threads 貼文，
+                    請依照你平常使用 Threads 的經驗，
+                    判斷哪一篇更可能爆紅。
+                </p>
+
+                <ul className="mt-4 space-y-2 text-black/80">
+                    <li>
+                        爆紅定義：更可能被按讚、留言、轉發或擴散
+                    </li>
+
+                    <li>
+                        請以貼文本身呈現為準，
+                        不需考慮品牌或個人喜好
+                    </li>
+
+                    <li>
+                        若真的看不出差異，
+                        可選擇「看不出來／差不多」
+                    </li>
+
+                    <li>
+                        最後會產生你的貼文排名，
+                        你可以再手動調整一次名次
+                    </li>
+                </ul>
+            </div>
+
+            <div className="mx-auto max-w-2xl rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm md:p-8">
+                <h1 className="text-2xl font-bold text-neutral-900">
+                    受試者基本資料
+                </h1>
+
+                <p className="mt-2 text-sm leading-6 text-neutral-600">
+                    請先填寫基本資料，再開始測驗。
+                </p>
+
+                <form
+                    onSubmit={handleStart}
+                    className="mt-6 space-y-5"
+                >
+                    <Field label="年齡" required>
+                        <select
+                            required
+                            value={form.age}
+                            onChange={(e) =>
+                                updateField(
+                                    "age",
+                                    e.target.value
+                                )
+                            }
+                            className="w-full rounded-xl border border-neutral-300 px-4 py-3"
+                        >
+                            <option value="">
+                                請選擇
+                            </option>
+
+                            <option value="18以下">
+                                18以下
+                            </option>
+
+                            <option value="18-24">
+                                18-24
+                            </option>
+
+                            <option value="25-34">
+                                25-34
+                            </option>
+
+                            <option value="35-44">
+                                35-44
+                            </option>
+
+                            <option value="45-54">
+                                45-54
+                            </option>
+
+                            <option value="55以上">
+                                55以上
+                            </option>
+                        </select>
+                    </Field>
+
+                    <Field label="性別" required>
+                        <select
+                            required
+                            value={form.gender}
+                            onChange={(e) =>
+                                updateField(
+                                    "gender",
+                                    e.target.value
+                                )
+                            }
+                            className="w-full rounded-xl border border-neutral-300 px-4 py-3"
+                        >
+                            <option value="">
+                                請選擇
+                            </option>
+
+                            <option value="男">
+                                男
+                            </option>
+
+                            <option value="女">
+                                女
+                            </option>
+
+                            <option value="非二元 / 多元性別">
+                                非二元 / 多元性別
+                            </option>
+
+                            <option value="不願透露">
+                                不願透露
+                            </option>
+                        </select>
+                    </Field>
+
+                    <Field
+                        label="你使用 Threads 的頻率"
+                        required
+                    >
+                        <select
+                            required
+                            value={form.threadsFrequency}
+                            onChange={(e) =>
+                                updateField(
+                                    "threadsFrequency",
+                                    e.target.value
+                                )
+                            }
+                            className="w-full rounded-xl border border-neutral-300 px-4 py-3"
+                        >
+                            <option value="">
+                                請選擇
+                            </option>
+
+                            <option value="幾乎每天">
+                                幾乎每天
+                            </option>
+
+                            <option value="每週數次">
+                                每週數次
+                            </option>
+
+                            <option value="每週一次左右">
+                                每週一次左右
+                            </option>
+
+                            <option value="每月數次">
+                                每月數次
+                            </option>
+
+                            <option value="幾乎不用">
+                                幾乎不用
+                            </option>
+                        </select>
+                    </Field>
+
+                    <Field
+                        label="你每天平均使用 Threads 多久"
+                        required
+                    >
+                        <select
+                            required
+                            value={form.dailyUsageMinutes}
+                            onChange={(e) =>
+                                updateField(
+                                    "dailyUsageMinutes",
+                                    e.target.value
+                                )
+                            }
+                            className="w-full rounded-xl border border-neutral-300 px-4 py-3"
+                        >
+                            <option value="">
+                                請選擇
+                            </option>
+
+                            <option value="10分鐘以下">
+                                10分鐘以下
+                            </option>
+
+                            <option value="10-30分鐘">
+                                10-30分鐘
+                            </option>
+
+                            <option value="31-60分鐘">
+                                31-60分鐘
+                            </option>
+
+                            <option value="1-2小時">
+                                1-2小時
+                            </option>
+
+                            <option value="2小時以上">
+                                2小時以上
+                            </option>
+                        </select>
+                    </Field>
+
+                    <Field
+                        label="你在 Threads 的發文頻率"
+                        required
+                    >
+                        <select
+                            required
+                            value={form.postingFrequency}
+                            onChange={(e) =>
+                                updateField(
+                                    "postingFrequency",
+                                    e.target.value
+                                )
+                            }
+                            className="w-full rounded-xl border border-neutral-300 px-4 py-3"
+                        >
+                            <option value="">
+                                請選擇
+                            </option>
+
+                            <option value="幾乎每天發文">
+                                幾乎每天發文
+                            </option>
+
+                            <option value="每週數次發文">
+                                每週數次發文
+                            </option>
+
+                            <option value="偶爾發文">
+                                偶爾發文
+                            </option>
+
+                            <option value="很少發文">
+                                很少發文
+                            </option>
+
+                            <option value="幾乎不發文">
+                                幾乎不發文
+                            </option>
+                        </select>
+                    </Field>
+
+                    {error ? (
+                        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">
+                            {error}
+                        </div>
+                    ) : null}
+
+                    <button
+                        type="submit"
+                        disabled={submitting}
+                        className="w-full rounded-2xl bg-black px-5 py-3.5 text-white transition hover:opacity-90 disabled:opacity-60"
+                    >
+                        {submitting
+                            ? "送出中..."
+                            : "開始測驗"}
+                    </button>
+                </form>
+            </div>
+        </main>
+    );
+}
+
+function Field({
+    label,
+    required = false,
+    children,
+}: {
+    label: string;
+    required?: boolean;
+    children: React.ReactNode;
+}) {
+    return (
+        <label className="block">
+            <div className="mb-2 text-sm font-medium text-neutral-800">
+                {required ? (
+                    <span className="mr-1 text-red-500">
+                        *
+                    </span>
+                ) : null}
+
+                {label}
+            </div>
+
+            {children}
+        </label>
+    );
+}
